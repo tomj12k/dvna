@@ -1,0 +1,177 @@
+# KNOWN_VULNS — ground-truth vulnerability catalog
+# Purpose: answer key for benchmarking Scantonomous scan findings against this app.
+# Diff scanner output vs. this file: a hit on a `vulnerable_source` path == true positive.
+# Schema per entry: id, category, cwe, owasp, route, parameter, vulnerable_source, secure_source, notes.
+
+app: DVNA
+full_name: Damn Vulnerable NodeJS Application
+upstream: https://github.com/appsecco/dvna
+fork: https://github.com/tomj12k/dvna
+language: JavaScript
+scan_surface: [SAST-node, DAST-web]
+catalog_notes: >
+  Business logic lives in core/ (handlers), routes in routes/, models in models/.
+  App's own vuln keys are defined in config/vulns.js (a1_injection..a10_logging,
+  ax_csrf, ax_redirect); solution write-ups in docs/solution/*.md. No hardened
+  variants ship, so secure_source is empty. All paths verified present.
+
+vulns:
+  - id: dvna-sqli
+    category: SQL Injection (raw query)
+    cwe: [CWE-89]
+    owasp: A03:2021-Injection
+    route: POST /app/usersearch
+    parameter: [login]
+    vulnerable_source: [core/appHandler.js]
+    secure_source: []
+    notes: userSearch() lines 9-36, string-concatenated SELECT into db.sequelize.query.
+
+  - id: dvna-command-injection
+    category: OS Command Injection
+    cwe: [CWE-78]
+    owasp: A03:2021-Injection
+    route: POST /app/ping
+    parameter: [address]
+    vulnerable_source: [core/appHandler.js]
+    secure_source: []
+    notes: ping() lines 38-45, exec('ping -c 2 ' + req.body.address).
+
+  - id: dvna-broken-auth-reset-token
+    category: Weak/Predictable Password-Reset Token
+    cwe: [CWE-640]
+    owasp: A07:2021-Identification and Authentication Failures
+    route: GET/POST /resetpw, POST /forgotpw
+    parameter: [login, token]
+    vulnerable_source: [core/authHandler.js, core/passport.js, server.js]
+    secure_source: []
+    notes: token == md5(login), attacker-derivable; weak session secret 'keyboard cat', cookie.secure=false.
+
+  - id: dvna-sensitive-data-exposure
+    category: Sensitive Data Exposure (password hash via API)
+    cwe: [CWE-200]
+    owasp: A02:2021-Cryptographic Failures
+    route: GET /app/admin/usersapi
+    parameter: []
+    vulnerable_source: [core/appHandler.js, models/user.js]
+    secure_source: []
+    notes: listUsersAPI() lines 206-213, res.json returns whole Sequelize objects incl. password.
+
+  - id: dvna-xxe
+    category: XML External Entities (XXE)
+    cwe: [CWE-611]
+    owasp: A05:2021-Security Misconfiguration
+    route: POST /app/bulkproducts
+    parameter: [products]
+    vulnerable_source: [core/appHandler.js]
+    secure_source: []
+    notes: bulkProducts() lines 233-248, libxmljs.parseXmlString(..., {noent:true}).
+
+  - id: dvna-broken-access-control-admin
+    category: Broken Access Control (admin gating client-side)
+    cwe: [CWE-284]
+    owasp: A01:2021-Broken Access Control
+    route: GET /app/admin, /app/admin/users, /app/admin/usersapi
+    parameter: []
+    vulnerable_source: [routes/app.js, views/app/admin.ejs, core/authHandler.js]
+    secure_source: []
+    notes: admin gating client-side only; routes check isAuthenticated, not role.
+
+  - id: dvna-idor-useredit
+    category: IDOR (user edit)
+    cwe: [CWE-639]
+    owasp: A01:2021-Broken Access Control
+    route: POST /app/useredit
+    parameter: [id]
+    vulnerable_source: [core/appHandler.js]
+    secure_source: []
+    notes: userEditSubmit() lines 144-184, trusts client-supplied id.
+
+  - id: dvna-unsafe-eval
+    category: Insecure Math Eval (code injection)
+    cwe: [CWE-95]
+    owasp: A05:2021-Security Misconfiguration
+    route: POST /app/calc
+    parameter: [eqn]
+    vulnerable_source: [core/appHandler.js, server.js]
+    secure_source: []
+    notes: calc() lines 194-204, mathjs.eval(req.body.eqn).
+
+  - id: dvna-xss-reflected
+    category: Reflected XSS (product search)
+    cwe: [CWE-79]
+    owasp: A03:2021-Injection
+    route: POST /app/products
+    parameter: [name]
+    vulnerable_source: [views/app/products.ejs, core/appHandler.js]
+    secure_source: []
+    notes: products.ejs line 20 <%- output.searchTerm %> unescaped.
+
+  - id: dvna-xss-stored
+    category: Stored XSS (product fields)
+    cwe: [CWE-79]
+    owasp: A03:2021-Injection
+    route: POST /app/modifyproduct -> GET /app/products
+    parameter: [name, code, tags, description]
+    vulnerable_source: [views/app/products.ejs, core/appHandler.js]
+    secure_source: []
+    notes: products.ejs lines 49-53 all fields output with <%- unescaped.
+
+  - id: dvna-xss-adminusers
+    category: DOM/Stored XSS (admin users via innerHTML)
+    cwe: [CWE-79]
+    owasp: A03:2021-Injection
+    route: GET /app/admin/users
+    parameter: [name, email]
+    vulnerable_source: [views/app/adminusers.ejs]
+    secure_source: []
+    notes: user-controlled name/email rendered via innerHTML.
+
+  - id: dvna-insecure-deserialization
+    category: Insecure Deserialization (node-serialize RCE)
+    cwe: [CWE-502]
+    owasp: A08:2021-Software and Data Integrity Failures
+    route: POST /app/bulkproductslegacy
+    parameter: [products]
+    vulnerable_source: [core/appHandler.js]
+    secure_source: []
+    notes: bulkProductsLegacy() lines 215-231, serialize.unserialize(req.files.products.data).
+
+  - id: dvna-vulnerable-components
+    category: Vulnerable Dependencies
+    cwe: [CWE-1104]
+    owasp: A06:2021-Vulnerable and Outdated Components
+    route: /
+    parameter: []
+    vulnerable_source: [package.json]
+    secure_source: []
+    notes: node-serialize@0.0.4 (RCE), libxmljs@0.19.1 (XXE), mathjs@3.10.1 (eval RCE), old sequelize/bcrypt.
+
+  - id: dvna-insufficient-logging
+    category: Insufficient Logging & Monitoring
+    cwe: [CWE-778]
+    owasp: A09:2021-Security Logging and Monitoring Failures
+    route: POST /login
+    parameter: []
+    vulnerable_source: [server.js, core/passport.js, core/authHandler.js]
+    secure_source: []
+    notes: only morgan('tiny'); no security event logging, login/reset failures not logged.
+
+  - id: dvna-csrf
+    category: Cross-Site Request Forgery
+    cwe: [CWE-352]
+    owasp: A01:2021-Broken Access Control
+    route: POST /app/modifyproduct, POST /app/useredit
+    parameter: []
+    vulnerable_source: [routes/app.js, server.js]
+    secure_source: []
+    notes: csurf listed as dep but not wired up; no CSRF token validated.
+
+  - id: dvna-open-redirect
+    category: Open Redirect
+    cwe: [CWE-601]
+    owasp: A01:2021-Broken Access Control
+    route: GET /app/redirect
+    parameter: [url]
+    vulnerable_source: [core/appHandler.js]
+    secure_source: []
+    notes: redirect() lines 186-192, res.redirect(req.query.url) with no validation.
